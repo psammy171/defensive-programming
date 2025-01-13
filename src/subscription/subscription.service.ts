@@ -4,6 +4,7 @@ import { PaymentService } from 'src/payment/payment.service';
 import { UpgradeSubscriptionDto } from './dtos/upgrade-subscription.dto';
 import { UserContext } from 'src/global/user-context';
 import { SubscriptionRepository } from './subscription.repository';
+import { Subscription } from './subscription.entity';
 
 @Injectable()
 export class SubscriptionService {
@@ -20,42 +21,46 @@ export class SubscriptionService {
       case SubscriptionPlan.PLATINUM:
         throw new BadRequestException(`Can't upgrade from PLATINUM plan`);
       case SubscriptionPlan.GOLD:
-        if (subscriptionPlan !== SubscriptionPlan.PLATINUM) return false;
+        return subscriptionPlan === SubscriptionPlan.PLATINUM;
       case SubscriptionPlan.SILVER:
-        if (
+        return (
           subscriptionPlan === SubscriptionPlan.GOLD ||
           subscriptionPlan === SubscriptionPlan.PLATINUM
-        )
-          return true;
+        );
       default:
-        return false;
+        throw new BadRequestException(
+          `Invalid user plan: ${user.subscriptionPlan}`,
+        );
     }
   }
 
+  private findSubscriptionByPlanTypeOrThrow(
+    subscriptionPlan: SubscriptionPlan,
+  ): Subscription {
+    return this.subscriptionRepo.findSubscriptionByPlanTypeOrThrow(
+      subscriptionPlan,
+    );
+  }
+
   getSubscriptionPlans() {
-    const keys = Object.keys(SubscriptionPlan);
-    const ids = Object.values(SubscriptionPlan);
-    const plans: { plan: string; id: string | SubscriptionPlan }[] = [];
-    for (let i = 0; i < keys.length; i++) {
-      plans.push({
-        id: ids[i],
-        plan: keys[i],
-      });
-    }
-    return plans;
+    return this.subscriptionRepo.getSubscriptionPlans();
   }
 
   async upgradeSubscription(
     user: UserContext,
     upgradeSubscription: UpgradeSubscriptionDto,
   ) {
-    if (
-      !this.isNewSubscriptionPlanCostlier(
-        user,
-        upgradeSubscription.subscriptionPlan,
-      )
-    )
-      throw new BadRequestException('Invalid subscription plan');
+    this.findSubscriptionByPlanTypeOrThrow(
+      upgradeSubscription.subscriptionPlan,
+    );
+    const isNewPlanCostlier = this.isNewSubscriptionPlanCostlier(
+      user,
+      upgradeSubscription.subscriptionPlan,
+    );
+    if (!isNewPlanCostlier)
+      throw new BadRequestException(
+        'New subscription plan should be higher plan then the current plan',
+      );
     const paymentInfo = await this.paymentService.makePayment(
       upgradeSubscription.cardDetails,
     );
@@ -69,8 +74,6 @@ export class SubscriptionService {
       };
     } else if (paymentInfo.status === 'failure') {
       throw new BadRequestException(paymentInfo.error);
-    } else {
-      throw new BadRequestException('Something went wrong');
     }
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import axios from 'axios';
 import { CardDto } from 'src/global/card.dto';
 
@@ -22,7 +22,16 @@ export class PaymentService {
   }
 
   async makePayment(card: CardDto): Promise<PaymentResponse> {
-    const res = await axios.post(this.PAYMENT_GATEWAY_LINK, this.map(card));
-    return res.data as PaymentResponse;
+    try {
+      const { data }: { data: PaymentResponse } = await axios.post(
+        this.PAYMENT_GATEWAY_LINK,
+        this.map(card),
+      );
+      return data;
+    } catch (err) {
+      throw new InternalServerErrorException(
+        `Something went wrong while processing payment. Code ${err.code}, message: ${err.message}`,
+      );
+    }
   }
 }
